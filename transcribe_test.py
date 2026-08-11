@@ -5,6 +5,9 @@ import subprocess
 import numpy as np
 from dotenv import load_dotenv
 from livekit import rtc, api
+import torch
+
+from silero_vad import load_silero_vad
 
 load_dotenv()
 
@@ -26,21 +29,44 @@ async def main():
 
     async def process_track(track: rtc.Track):
         stream = rtc.AudioStream(track, sample_rate=sample_rate, num_channels=1)
-        frames_collected = 0
-        frames_needed = sample_rate * CHUNK_SECONDS
+
+        vad_model = load_silero_vad()
+        window_size = 512 # required by silero at 16kHz
+        rolling_buffer = np.array([], dtype=np.int16)
+        speech_buffer = []
+        is_speaking = False
+        silence_frames = 0
+        SILENCE_THRESHOLD = 20 # ~20 windows of silence (~640ms) = end of turn
 
         async for event in stream:
             frame = event.frame
             data = np.frombuffer(frame.data, dtype=np.int16)
-            audio_buffer.append(data)
-            print(f"[DEBUG] frames_collected: {frames_collected}/{frames_needed}", end="\r")
-            frames_collected += len(data)
+            rolling_buffer = np.concatenate([rolling_buffer, data])
 
-            if frames_collected >= frames_needed:
-                full_audio = np.concatenate(audio_buffer)
-                audio_buffer.clear()
-                frames_collected = 0
-                await transcribe(full_audio)
+            while len(rolling_buffer) >= window_size:
+                chunk = rolling_buffer[:window_size]
+                rolling_buffer = rolling_buffer[window_size:]
+
+                float_chunk = chunk.astype(np.float32) / 32768.0
+                speech_prob = vad_model(torch.from_numpy(float_chunk), sample_rate).item()
+
+                if speech_prob > 0.5:
+                    is_speaking = True
+                    silence_frames = 0
+                    speech_buffer.append(chunk)
+
+                elif is_speaking:
+                    silence_frames += 1
+                    speech_buffer.append(chunk)
+
+                    if silence_frames >= SILENCE_THRESHOLD:
+                        # End of turn detected
+                        full_audio = np.concatenate(speech_buffer)
+                        speech_buffer = []
+                        is_speaking = False
+                        silence_frames = 0
+                        print("[DEBUG] End of turn detected, transcribing...")
+                        await transcribe(full_audio)    
 
     async def transcribe(audio_data):
         wav_path = "chunk.wav"
