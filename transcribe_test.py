@@ -14,6 +14,7 @@ load_dotenv()
 WHISPER_BIN = "/home/rishu/whisper.cpp/build/bin/whisper-cli"
 WHISPER_MODEL = "/home/rishu/whisper.cpp/models/ggml-base.en.bin"
 CHUNK_SECONDS = 4
+AGENT_STATE = {"mode": "LISTENING", "interrupt": False}
 
 async def main():
     url = os.getenv('LIVEKIT_URL')
@@ -24,19 +25,23 @@ async def main():
         .to_jwt()
 
     room = rtc.Room()
-    audio_buffer = []
-    sample_rate = 16000 # whisper wants 216KHz mono
+    sample_rate = 16000  # whisper wants 16kHz mono
+
+    # --- Persistent audio source/track for the agent's voice, published once ---
+    PIPER_SAMPLE_RATE = 22050
+    agent_audio_source = rtc.AudioSource(PIPER_SAMPLE_RATE, 1)
+    agent_audio_track = rtc.LocalAudioTrack.create_audio_track("agent-voice", agent_audio_source)
 
     async def process_track(track: rtc.Track):
         stream = rtc.AudioStream(track, sample_rate=sample_rate, num_channels=1)
 
         vad_model = load_silero_vad()
-        window_size = 512 # required by silero at 16kHz
+        window_size = 512  # required by silero at 16kHz
         rolling_buffer = np.array([], dtype=np.int16)
         speech_buffer = []
         is_speaking = False
         silence_frames = 0
-        SILENCE_THRESHOLD = 20 # ~20 windows of silence (~640ms) = end of turn
+        SILENCE_THRESHOLD = 20  # ~20 windows of silence (~640ms) = end of turn
 
         async for event in stream:
             frame = event.frame
@@ -51,6 +56,9 @@ async def main():
                 speech_prob = vad_model(torch.from_numpy(float_chunk), sample_rate).item()
 
                 if speech_prob > 0.5:
+                    if AGENT_STATE["mode"] == "SPEAKING":
+                        AGENT_STATE["interrupt"] = True
+                        print("[DEBUG] Barge-in detected")
                     is_speaking = True
                     silence_frames = 0
                     speech_buffer.append(chunk)
@@ -66,7 +74,7 @@ async def main():
                         is_speaking = False
                         silence_frames = 0
                         print("[DEBUG] End of turn detected, transcribing...")
-                        await transcribe(full_audio)    
+                        asyncio.create_task(transcribe(full_audio))   # <-- changed from `await transcribe(...)`
 
     async def transcribe(audio_data):
         wav_path = "chunk.wav"
@@ -108,25 +116,31 @@ async def main():
         await publish_audio(output_wav)
 
     async def publish_audio(wav_path):
+        # Uses agent_audio_source from the enclosing scope — no need to pass it in,
+        # since this track is published once and reused for every response.
         with wave.open(wav_path, "rb") as wf:
             sr = wf.getframerate()
             audio_data = wf.readframes(wf.getnframes())
 
-        source = rtc.AudioSource(sr, 1) # sample rate, mono
-        track = rtc.LocalAudioTrack.create_audio_track("agent-voice", source)
-        await room.local_participant.publish_track(track)
-
         samples = np.frombuffer(audio_data, dtype=np.int16)
-        frame_size = 480 # 10ms chunks at typical sample rates
+        frame_size = 480
+        AGENT_STATE["mode"] = "SPEAKING"
+        AGENT_STATE["interrupt"] = False
+
         for i in range(0, len(samples), frame_size):
-            chunk = samples[i: i+frame_size]
+            if AGENT_STATE["interrupt"]:
+                print("[DEBUG] Playback interrupted by barge-in")
+                break
+            chunk = samples[i:i + frame_size]
             frame = rtc.AudioFrame(
                 data=chunk.tobytes(),
                 sample_rate=sr,
                 num_channels=1,
                 samples_per_channel=len(chunk)
             )
-            await source.capture_frame(frame)              
+            await agent_audio_source.capture_frame(frame)
+
+        AGENT_STATE["mode"] = "LISTENING"
 
     @room.on("track_subscribed")
     def on_track_subscribed(track, publication, participant):
@@ -136,10 +150,14 @@ async def main():
 
     await room.connect(url, token)
     print(f"Agent joined room: {room.name}")
-    print("Speak in the other tab — transcripts will print every ~4 seconds.")
+
+    # Publish the agent's voice track once, right after connecting
+    await room.local_participant.publish_track(agent_audio_track)
+    print("Agent audio track published.")
+
+    print("Speak in the other tab — the agent will respond, and you can interrupt it by talking.")
 
     await asyncio.sleep(120)
     await room.disconnect()
 
 asyncio.run(main())
-                        
