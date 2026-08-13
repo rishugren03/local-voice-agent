@@ -8,6 +8,7 @@ import numpy as np
 from dotenv import load_dotenv
 from livekit import rtc, api
 import torch
+import requests
 
 from silero_vad import load_silero_vad
 from mcp import ClientSession, StdioServerParameters
@@ -47,6 +48,7 @@ async def main():
     PIPER_SAMPLE_RATE = 22050
     agent_audio_source = rtc.AudioSource(PIPER_SAMPLE_RATE, 1)
     agent_audio_track = rtc.LocalAudioTrack.create_audio_track("agent-voice", agent_audio_source)
+    
 
     async def process_track(track: rtc.Track):
         stream = rtc.AudioStream(track, sample_rate=sample_rate, num_channels=1)
@@ -92,6 +94,22 @@ async def main():
                         print("[DEBUG] End of turn detected, transcribing...")
                         asyncio.create_task(transcribe(full_audio))   # <-- changed from `await transcribe(...)`
 
+    def call_ollama(prompt, stop=None, max_tokens=150):
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "phi4-mini",
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "stop": stop or [],
+                    "num_predict": max_tokens
+                }
+            },
+            timeout=30
+        )
+        return response.json()["response"].strip()
+
     async def transcribe(audio_data):
         wav_path = "chunk.wav"
         with wave.open(wav_path, "wb") as wf:
@@ -112,22 +130,18 @@ async def main():
 - calculate(expression): evaluates a math expression
 - check_calendar(date): checks calendar for a date like '2026-08-15'
 
-If the user's request needs one of these tools, respond with ONLY this JSON format and nothing else:
+If the user's request needs one of these tools, respond with ONLY the JSON below and nothing else — no explanation, no commentary:
 {{"tool": "calculate", "args": {{"expression": "..."}}}}
 or
 {{"tool": "check_calendar", "args": {{"date": "..."}}}}
 
-Otherwise, just respond normally in plain text.
+Otherwise, respond normally and conversationally, as if speaking out loud. Do NOT explain your reasoning, do NOT mention tools, do NOT add notes.
 
-User: {user_text}"""
+User: {user_text}
+Agent:"""
 
-        result = subprocess.run(
-            ["ollama", "run", "phi4-mini", tool_prompt],
-            capture_output=True, text=True, timeout=30
-        )
-        raw_response = result.stdout.strip()
+        raw_response = call_ollama(tool_prompt, stop=["\nUser", "User:", "\n---"], max_tokens=150)
 
-        # Try to detect a tool call in the response
         json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
         tool_used = False
 
@@ -144,21 +158,21 @@ User: {user_text}"""
                     result_text = tool_result.content[0].text if tool_result.content else "No result"
                     print(f"[DEBUG] Tool result: {result_text}")
 
-                    # Feed the tool result back for a natural spoken response
-                    followup = subprocess.run(
-                        ["ollama", "run", "phi4-mini",
-                         f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence."],
-                        capture_output=True, text=True, timeout=30
+                    response = call_ollama(
+                        f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence.\nAgent:",
+                        stop=["\nUser", "User:"], max_tokens=60
                     )
-                    response = followup.stdout.strip()
             except (json.JSONDecodeError, KeyError):
                 tool_used = False
 
         if not tool_used:
             response = raw_response
 
+        response = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:', response, maxsplit=1)[0].strip()
         print(f"Agent: {response}")
         await speak(response)
+
+        
 
     async def speak(text):
         output_wav = "response.wav"
