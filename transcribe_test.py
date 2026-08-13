@@ -1,6 +1,8 @@
 import asyncio
 import os
 import wave
+import json
+import re
 import subprocess
 import numpy as np
 from dotenv import load_dotenv
@@ -8,6 +10,8 @@ from livekit import rtc, api
 import torch
 
 from silero_vad import load_silero_vad
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 load_dotenv()
 
@@ -17,12 +21,24 @@ CHUNK_SECONDS = 4
 AGENT_STATE = {"mode": "LISTENING", "interrupt": False}
 
 async def main():
+    mcp_params = StdioServerParameters(
+        command="python3",
+        args=["mcp_server.py"],
+    )
+    mcp_stdio_ctx = stdio_client(mcp_params)
+    mcp_read, mcp_write = await mcp_stdio_ctx.__aenter__()
+    mcp_session = ClientSession(mcp_read, mcp_write)
+    await mcp_session.__aenter__()
+    await mcp_session.initialize()
+    print("[DEBUG] MCP server connected")
+
     url = os.getenv('LIVEKIT_URL')
     token = api.AccessToken(os.getenv("LIVEKIT_API_KEY"), os.getenv("LIVEKIT_API_SECRET")) \
         .with_identity("voice-agent") \
         .with_name("Voice Agent") \
         .with_grants(api.VideoGrants(room_join=True, room="test-room")) \
         .to_jwt()
+    
 
     room = rtc.Room()
     sample_rate = 16000  # whisper wants 16kHz mono
@@ -92,11 +108,55 @@ async def main():
             await get_llm_response(text)
 
     async def get_llm_response(user_text):
+        tool_prompt = f"""You have access to two tools:
+- calculate(expression): evaluates a math expression
+- check_calendar(date): checks calendar for a date like '2026-08-15'
+
+If the user's request needs one of these tools, respond with ONLY this JSON format and nothing else:
+{{"tool": "calculate", "args": {{"expression": "..."}}}}
+or
+{{"tool": "check_calendar", "args": {{"date": "..."}}}}
+
+Otherwise, just respond normally in plain text.
+
+User: {user_text}"""
+
         result = subprocess.run(
-            ["ollama", "run", "phi4-mini", user_text],
+            ["ollama", "run", "phi4-mini", tool_prompt],
             capture_output=True, text=True, timeout=30
         )
-        response = result.stdout.strip()
+        raw_response = result.stdout.strip()
+
+        # Try to detect a tool call in the response
+        json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+        tool_used = False
+
+        if json_match:
+            try:
+                call = json.loads(json_match.group())
+                if "tool" in call:
+                    tool_used = True
+                    tool_name = call["tool"]
+                    tool_args = call.get("args", {})
+                    print(f"[DEBUG] Calling tool: {tool_name}({tool_args})")
+
+                    tool_result = await mcp_session.call_tool(tool_name, tool_args)
+                    result_text = tool_result.content[0].text if tool_result.content else "No result"
+                    print(f"[DEBUG] Tool result: {result_text}")
+
+                    # Feed the tool result back for a natural spoken response
+                    followup = subprocess.run(
+                        ["ollama", "run", "phi4-mini",
+                         f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence."],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    response = followup.stdout.strip()
+            except (json.JSONDecodeError, KeyError):
+                tool_used = False
+
+        if not tool_used:
+            response = raw_response
+
         print(f"Agent: {response}")
         await speak(response)
 
@@ -159,5 +219,7 @@ async def main():
 
     await asyncio.sleep(120)
     await room.disconnect()
+    await mcp_session.__aexit__(None, None, None)
+    await mcp_stdio_ctx.__aexit__(None, None, None)
 
 asyncio.run(main())
