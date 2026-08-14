@@ -21,6 +21,18 @@ WHISPER_MODEL = "/home/rishu/whisper.cpp/models/ggml-base.en.bin"
 CHUNK_SECONDS = 4
 AGENT_STATE = {"mode": "LISTENING", "interrupt": False}
 
+AGENTS = {
+    "primary": {
+        "name": "primary",
+        "system": "You are a helpful general assistant. If the user wants to check calendar availability or schedule something, hand off to the scheduler.",
+    },
+    "scheduler": {
+        "name": "scheduler",
+        "system": "You are a scheduling assistant. Help the user check availability and find appointment slots using the check_calendar tool. Be efficient and specific.",
+    },
+}
+CURRENT_AGENT = {"active": "primary", "context": ""}
+
 async def main():
     mcp_params = StdioServerParameters(
         command="python3",
@@ -126,16 +138,17 @@ async def main():
             await get_llm_response(text)
 
     async def get_llm_response(user_text):
-        tool_prompt = f"""You have access to two tools:
+        tool_prompt = f"""You have access to these tools:
 - calculate(expression): evaluates a math expression
 - check_calendar(date): checks calendar for a date like '2026-08-15'
+- handoff_to_scheduler(reason): transfers the conversation to a scheduling specialist
 
-If the user's request needs one of these tools, respond with ONLY the JSON below and nothing else — no explanation, no commentary:
+If the user's request needs one of these, respond with ONLY the matching JSON and nothing else:
 {{"tool": "calculate", "args": {{"expression": "..."}}}}
-or
 {{"tool": "check_calendar", "args": {{"date": "..."}}}}
+{{"tool": "handoff_to_scheduler", "args": {{"reason": "..."}}}}
 
-Otherwise, respond normally and conversationally, as if speaking out loud. Do NOT explain your reasoning, do NOT mention tools, do NOT add notes.
+Otherwise, respond normally and conversationally. Do NOT explain your reasoning or mention tools.
 
 User: {user_text}
 Agent:"""
@@ -148,20 +161,25 @@ Agent:"""
         if json_match:
             try:
                 call = json.loads(json_match.group())
-                if "tool" in call:
+                if isinstance(call, dict) and "tool" in call:
                     tool_used = True
                     tool_name = call["tool"]
                     tool_args = call.get("args", {})
                     print(f"[DEBUG] Calling tool: {tool_name}({tool_args})")
 
-                    tool_result = await mcp_session.call_tool(tool_name, tool_args)
-                    result_text = tool_result.content[0].text if tool_result.content else "No result"
-                    print(f"[DEBUG] Tool result: {result_text}")
+                    if tool_name == "handoff_to_scheduler":
+                        CURRENT_AGENT["active"] = "scheduler"
+                        CURRENT_AGENT["context"] = tool_args.get("reason", "")
+                        response = "Sure, let me connect you with scheduling."
+                    else:
+                        tool_result = await mcp_session.call_tool(tool_name, tool_args)
+                        result_text = tool_result.content[0].text if tool_result.content else "No result"
+                        print(f"[DEBUG] Tool result: {result_text}")
 
-                    response = call_ollama(
-                        f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence.\nAgent:",
-                        stop=["\nUser", "User:"], max_tokens=60
-                    )
+                        response = call_ollama(
+                            f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence.\nAgent:",
+                            stop=["\nUser", "User:"], max_tokens=60
+                        )
             except (json.JSONDecodeError, KeyError):
                 tool_used = False
 
