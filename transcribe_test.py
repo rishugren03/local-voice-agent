@@ -60,6 +60,86 @@ async def main():
     PIPER_SAMPLE_RATE = 22050
     agent_audio_source = rtc.AudioSource(PIPER_SAMPLE_RATE, 1)
     agent_audio_track = rtc.LocalAudioTrack.create_audio_track("agent-voice", agent_audio_source)
+
+    async def get_llm_response(user_text):
+        active = CURRENT_AGENT["active"]
+        persona = AGENTS[active]
+        context_note = f"\n(Context from handoff: {CURRENT_AGENT['context']})" if CURRENT_AGENT["context"] else ""
+
+        if active == "primary":
+            tool_prompt = f"""{persona['system']}
+
+You have access to these tools:
+- calculate(expression): evaluates a math expression
+- check_calendar(date): checks calendar for a date like '2026-08-15'
+- handoff_to_scheduler(reason): transfers the conversation to a scheduling specialist
+
+If the user's request needs one of these, respond with ONLY the matching JSON and nothing else:
+{{"tool": "calculate", "args": {{"expression": "..."}}}}
+{{"tool": "check_calendar", "args": {{"date": "..."}}}}
+{{"tool": "handoff_to_scheduler", "args": {{"reason": "..."}}}}
+
+Otherwise, respond normally and conversationally. Do NOT explain your reasoning or mention tools.
+
+User: {user_text}
+Agent:"""
+        else:  # scheduler persona
+            tool_prompt = f"""{persona['system']}{context_note}
+
+You have access to:
+- check_calendar(date): checks calendar for a date like '2026-08-15'
+- handoff_to_primary(reason): transfers back to the general assistant if the user's request is no longer about scheduling
+
+If the user's request needs one of these, respond with ONLY the matching JSON and nothing else:
+{{"tool": "check_calendar", "args": {{"date": "..."}}}}
+{{"tool": "handoff_to_primary", "args": {{"reason": "..."}}}}
+
+Otherwise, respond normally and conversationally, focused on scheduling. Do NOT explain your reasoning or mention tools.
+
+User: {user_text}
+Agent:"""
+
+        raw_response = call_ollama(tool_prompt, stop=["\nUser", "User:", "\n---"], max_tokens=150)
+
+        json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
+        tool_used = False
+
+        if json_match:
+            try:
+                call = json.loads(json_match.group())
+                if "tool" in call:
+                    tool_used = True
+                    tool_name = call["tool"]
+                    tool_args = call.get("args", {})
+                    print(f"[DEBUG] Calling tool: {tool_name}({tool_args})")
+
+                    if tool_name == "handoff_to_scheduler":
+                        CURRENT_AGENT["active"] = "scheduler"
+                        CURRENT_AGENT["context"] = tool_args.get("reason", "")
+                        response = "Sure, let me connect you with scheduling."
+                    elif tool_name == "handoff_to_primary":
+                        CURRENT_AGENT["active"] = "primary"
+                        CURRENT_AGENT["context"] = ""
+                        response = "Sure, let me bring you back to the main assistant."
+                    else:
+                        tool_result = await mcp_session.call_tool(tool_name, tool_args)
+                        result_text = tool_result.content[0].text if tool_result.content else "No result"
+                        print(f"[DEBUG] Tool result: {result_text}")
+
+                        response = call_ollama(
+                            f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence.\nAgent:",
+                            stop=["\nUser", "User:"], max_tokens=60
+                        )
+            except (json.JSONDecodeError, KeyError):
+                tool_used = False
+
+        if not tool_used:
+            response = raw_response
+
+        response = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:', response, maxsplit=1)[0].strip()
+        print(f"[DEBUG] Active agent: {CURRENT_AGENT['active']}")
+        print(f"Agent: {response}")
+        await speak(response)
     
 
     async def process_track(track: rtc.Track):
@@ -136,61 +216,6 @@ async def main():
         if text:
             print(f"You said: {text}")
             await get_llm_response(text)
-
-    async def get_llm_response(user_text):
-        tool_prompt = f"""You have access to these tools:
-- calculate(expression): evaluates a math expression
-- check_calendar(date): checks calendar for a date like '2026-08-15'
-- handoff_to_scheduler(reason): transfers the conversation to a scheduling specialist
-
-If the user's request needs one of these, respond with ONLY the matching JSON and nothing else:
-{{"tool": "calculate", "args": {{"expression": "..."}}}}
-{{"tool": "check_calendar", "args": {{"date": "..."}}}}
-{{"tool": "handoff_to_scheduler", "args": {{"reason": "..."}}}}
-
-Otherwise, respond normally and conversationally. Do NOT explain your reasoning or mention tools.
-
-User: {user_text}
-Agent:"""
-
-        raw_response = call_ollama(tool_prompt, stop=["\nUser", "User:", "\n---"], max_tokens=150)
-
-        json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
-        tool_used = False
-
-        if json_match:
-            try:
-                call = json.loads(json_match.group())
-                if isinstance(call, dict) and "tool" in call:
-                    tool_used = True
-                    tool_name = call["tool"]
-                    tool_args = call.get("args", {})
-                    print(f"[DEBUG] Calling tool: {tool_name}({tool_args})")
-
-                    if tool_name == "handoff_to_scheduler":
-                        CURRENT_AGENT["active"] = "scheduler"
-                        CURRENT_AGENT["context"] = tool_args.get("reason", "")
-                        response = "Sure, let me connect you with scheduling."
-                    else:
-                        tool_result = await mcp_session.call_tool(tool_name, tool_args)
-                        result_text = tool_result.content[0].text if tool_result.content else "No result"
-                        print(f"[DEBUG] Tool result: {result_text}")
-
-                        response = call_ollama(
-                            f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence.\nAgent:",
-                            stop=["\nUser", "User:"], max_tokens=60
-                        )
-            except (json.JSONDecodeError, KeyError):
-                tool_used = False
-
-        if not tool_used:
-            response = raw_response
-
-        response = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:', response, maxsplit=1)[0].strip()
-        print(f"Agent: {response}")
-        await speak(response)
-
-        
 
     async def speak(text):
         output_wav = "response.wav"
