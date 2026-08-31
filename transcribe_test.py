@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from livekit import rtc, api
 import torch
 import requests
+import time
 
 from silero_vad import load_silero_vad
 from mcp import ClientSession, StdioServerParameters
@@ -33,6 +34,24 @@ AGENTS = {
 }
 CURRENT_AGENT = {"active": "primary", "context": ""}
 
+def call_ollama(prompt, stop=None, max_tokens=150):
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={
+            "model": "phi4-mini",
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": "30m",
+            "options": {
+            "stop": stop or [],
+            "num_predict": max_tokens
+        }
+    },
+        timeout=30
+)
+    return response.json()["response"].strip()
+
+
 async def main():
     mcp_params = StdioServerParameters(
         command="python3",
@@ -44,6 +63,10 @@ async def main():
     await mcp_session.__aenter__()
     await mcp_session.initialize()
     print("[DEBUG] MCP server connected")
+
+    print("[DEBUG] Warming up LLM...")
+    call_ollama("Say OK.", max_tokens=5)
+    print("[DEBUG] LLM warm.")
 
     url = os.getenv('LIVEKIT_URL')
     token = api.AccessToken(os.getenv("LIVEKIT_API_KEY"), os.getenv("LIVEKIT_API_SECRET")) \
@@ -61,7 +84,15 @@ async def main():
     agent_audio_source = rtc.AudioSource(PIPER_SAMPLE_RATE, 1)
     agent_audio_track = rtc.LocalAudioTrack.create_audio_track("agent-voice", agent_audio_source)
 
+    def clean_response(text):
+       # Cut at common meta-commentary markers
+       text = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:|\*\*The following', text, maxsplit=1)[0].strip()
+       # Hard cap: keep only the first 2 sentences for spoken responses
+       sentences = re.split(r'(?<=[.!?])\s+', text)
+       return ' '.join(sentences[:2]).strip()
+
     async def get_llm_response(user_text):
+        t0 = time.monotonic()
         active = CURRENT_AGENT["active"]
         persona = AGENTS[active]
         context_note = f"\n(Context from handoff: {CURRENT_AGENT['context']})" if CURRENT_AGENT["context"] else ""
@@ -100,6 +131,7 @@ User: {user_text}
 Agent:"""
 
         raw_response = call_ollama(tool_prompt, stop=["\nUser", "User:", "\n---"], max_tokens=150)
+        print(f"[TIMING] LLM (first pass) took {time.monotonic() - t0:.2f}s")
 
         json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
         tool_used = False
@@ -126,17 +158,20 @@ Agent:"""
                         result_text = tool_result.content[0].text if tool_result.content else "No result"
                         print(f"[DEBUG] Tool result: {result_text}")
 
+                        t1 = time.monotonic()
                         response = call_ollama(
                             f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence.\nAgent:",
                             stop=["\nUser", "User:"], max_tokens=60
                         )
+                        print(f"[TIMING] LLM (follow-up) took {time.monotonic() - t1:.2f}s")
+
             except (json.JSONDecodeError, KeyError):
                 tool_used = False
 
         if not tool_used:
             response = raw_response
 
-        response = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:', response, maxsplit=1)[0].strip()
+        response = clean_response(response)
         print(f"[DEBUG] Active agent: {CURRENT_AGENT['active']}")
         print(f"Agent: {response}")
         await speak(response)
@@ -166,7 +201,7 @@ Agent:"""
                 speech_prob = vad_model(torch.from_numpy(float_chunk), sample_rate).item()
 
                 if speech_prob > 0.5:
-                    if AGENT_STATE["mode"] == "SPEAKING":
+                    if AGENT_STATE["mode"] == "SPEAKING" and not AGENT_STATE["interrupt"]:
                         AGENT_STATE["interrupt"] = True
                         print("[DEBUG] Barge-in detected")
                     is_speaking = True
@@ -186,23 +221,8 @@ Agent:"""
                         print("[DEBUG] End of turn detected, transcribing...")
                         asyncio.create_task(transcribe(full_audio))   # <-- changed from `await transcribe(...)`
 
-    def call_ollama(prompt, stop=None, max_tokens=150):
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": "phi4-mini",
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "stop": stop or [],
-                    "num_predict": max_tokens
-                }
-            },
-            timeout=30
-        )
-        return response.json()["response"].strip()
-
     async def transcribe(audio_data):
+        t0 = time.monotonic()
         wav_path = "chunk.wav"
         with wave.open(wav_path, "wb") as wf:
             wf.setparams((1, 2, sample_rate, 0, "NONE", "NONE"))
@@ -213,24 +233,30 @@ Agent:"""
             capture_output=True, text=True
         )
         text = result.stdout.strip()
+        print(f"[TIMING] STT took {time.monotonic() - t0:.2f}s")
         if text:
             print(f"You said: {text}")
             await get_llm_response(text)
 
+
     async def speak(text):
+        t0 = time.monotonic()
         output_wav = "response.wav"
         result = subprocess.run(
             ["piper", "--model", "/home/rishu/en_US-lessac-medium.onnx", "--output_file", output_wav],
             input=text, text=True, capture_output=True
         )
+        print(f"[TIMING] TTS synthesis took {time.monotonic() - t0:.2f}s")
         print(f"[DEBUG] piper returncode: {result.returncode}")
-        print(f"[DEBUG] piper stderr: {result.stderr!r}")
+        
 
         if result.returncode != 0 or not os.path.exists(output_wav):
             print("[DEBUG] Piper failed to produce output, skipping playback")
             return
 
+        t1 = time.monotonic()
         await publish_audio(output_wav)
+        print(f"[TIMING] Audio publish took {time.monotonic() - t1:.2f}s")
 
     async def publish_audio(wav_path):
         # Uses agent_audio_source from the enclosing scope — no need to pass it in,
