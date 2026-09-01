@@ -117,6 +117,8 @@ You have access to these tools:
 - check_calendar(date): checks calendar for a date like '2026-08-15'
 - handoff_to_scheduler(reason): transfers the conversation to a scheduling specialist
 
+RULE: For ANY math or arithmetic question, no matter how simple, you MUST use the calculate tool. Never compute or state a numeric answer yourself.
+
 If the user's request needs one of these, respond with ONLY the matching JSON and nothing else:
 {{"tool": "calculate", "args": {{"expression": "..."}}}}
 {{"tool": "check_calendar", "args": {{"date": "..."}}}}

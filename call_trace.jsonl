@@ -65,3 +65,36 @@
 {"call_id": "2f2b92b6", "timestamp": "2026-09-01T16:16:09.470995", "event": "stt", "duration_s": 0.8840649849989859, "text": "Tell me a fun fact about space."}
 {"call_id": "2f2b92b6", "timestamp": "2026-09-01T16:16:11.784891", "event": "llm", "duration_s": 2.313766409000891, "response": "Did you know that Venus is the hottest planet in our solar system even though Mercury is closer to the Sun? This happens because its thick atmosphere traps heat through what's called the greenhouse effect, leading to surface temperatures hot enough to melt lead.", "tool": false}
 {"call_id": "2f2b92b6", "timestamp": "2026-09-01T16:16:13.370887", "event": "tts", "duration_s": 1.5858658699999069, "returncode": 0}
+{"call_id": "edcf54b3", "timestamp": "2026-09-01T16:26:46.708523", "event": "stt", "duration_s": 0.900786184000026, "text": "What is 12 plus 15?"}
+{"call_id": "edcf54b3", "timestamp": "2026-09-01T16:26:50.167550", "event": "llm", "duration_s": 3.458895419998953, "response": "The sum of 12 plus 15 is 27.", "tool": true}
+{"call_id": "edcf54b3", "timestamp": "2026-09-01T16:26:51.427095", "event": "tts", "duration_s": 1.2594218960002763, "returncode": 0}
+{"call_id": "4c168f60", "timestamp": "2026-09-01T16:26:55.683892", "event": "stt", "duration_s": 0.8561438560009265, "text": "multiply 47 by 12."}
+{"call_id": "4c168f60", "timestamp": "2026-09-01T16:26:57.908312", "event": "llm", "duration_s": 2.2235214969987283, "response": "The product of multiplying 47 by 12 is 564.", "tool": true}
+{"call_id": "4c168f60", "timestamp": "2026-09-01T16:26:59.162842", "event": "tts", "duration_s": 1.2544017800009897, "returncode": 0}
+{"call_id": "6406b3d2", "timestamp": "2026-09-01T16:27:05.011388", "event": "stt", "duration_s": 0.8720388629990339, "text": "Check my calendar for August 15th."}
+{"call_id": "6406b3d2", "timestamp": "2026-09-01T16:27:07.970248", "event": "llm", "duration_s": 2.958716147000814, "response": "Your calendar for August 15th is busy; you have a team standup scheduled at 10am and an appointment with your dentist at 3pm.", "tool": true}
+{"call_id": "6406b3d2", "timestamp": "2026-09-01T16:27:09.469293", "event": "tts", "duration_s": 1.4989016899999115, "returncode": 0}
+{"call_id": "8c7b72e9", "timestamp": "2026-09-01T16:27:14.549828", "event": "stt", "duration_s": 0.9003971660004026, "text": "Can you help me find a free slot next week?"}
+{"call_id": "8c7b72e9", "timestamp": "2026-09-01T16:27:16.488439", "event": "llm", "duration_s": 1.9384783530003915, "response": "I'd be happy to assist with that! Could I have the specific dates you're interested in checking for availability?", "tool": false}
+{"call_id": "8c7b72e9", "timestamp": "2026-09-01T16:27:17.708138", "event": "tts", "duration_s": 1.2194463429987081, "returncode": 0}
+{"call_id": "3b154617", "timestamp": "2026-09-01T16:27:23.657093", "event": "stt", "duration_s": 0.9187799160008581, "text": "Tell me a fun fact about space."}
+{"call_id": "3b154617", "timestamp": "2026-09-01T16:27:28.883486", "event": "llm", "duration_s": 5.226132215999314, "response": "Fun fact about space! Did you know that Jupiter has a day that's longer than its year?", "tool": true}
+{"call_id": "3b154617", "timestamp": "2026-09-01T16:27:30.146762", "event": "tts", "duration_s": 1.2631603879999602, "returncode": 0}
+{"call_id": "84176dfb", "timestamp": "2026-09-01T16:30:07.919387", "event": "stt", "duration_s": 0.8529533469991293, "text": "Hello, how are you?"}
+{"call_id": "84176dfb", "timestamp": "2026-09-01T16:30:09.096577", "event": "llm", "duration_s": 1.1770358390003821, "response": "I'm just a program, so I don't have feelings like humans do, but I'm here to help! How can I assist you today?", "tool": false}
+{"call_id": "84176dfb", "timestamp": "2026-09-01T16:30:10.406543", "event": "tts", "duration_s": 1.3098408909991122, "returncode": 0}
+{"call_id": "28afbac7", "timestamp": "2026-09-01T16:30:16.654776", "event": "stt", "duration_s": 0.8503808519999438, "text": "What is 12 plus 15?"}
+{"call_id": "28afbac7", "timestamp": "2026-09-01T16:30:18.389204", "event": "llm", "duration_s": 1.7342921540002862, "response": "The sum of 12 plus 15 is 27.", "tool": true}
+{"call_id": "28afbac7", "timestamp": "2026-09-01T16:30:19.537623", "event": "tts", "duration_s": 1.1482505519998085, "returncode": 0}
+{"call_id": "8fb20f1b", "timestamp": "2026-09-01T16:30:25.654370", "event": "stt", "duration_s": 0.8595677419998538, "text": "Multiply 47 by 12."}
+{"call_id": "8fb20f1b", "timestamp": "2026-09-01T16:30:27.883348", "event": "llm", "duration_s": 2.2288282469999103, "response": "The product of multiplying 47 by 12 is 564.", "tool": true}
+{"call_id": "8fb20f1b", "timestamp": "2026-09-01T16:30:29.052298", "event": "tts", "duration_s": 1.1688254310010961, "returncode": 0}
+{"call_id": "dfdf477c", "timestamp": "2026-09-01T16:30:35.007408", "event": "stt", "duration_s": 0.873258811998312, "text": "Check my calendar for August 15th."}
+{"call_id": "dfdf477c", "timestamp": "2026-09-01T16:30:37.546868", "event": "llm", "duration_s": 2.539324306999333, "response": "There are no scheduled activities on your calendar for August 15th, 2023.", "tool": true}
+{"call_id": "dfdf477c", "timestamp": "2026-09-01T16:30:38.745955", "event": "tts", "duration_s": 1.1989723009992304, "returncode": 0}
+{"call_id": "13d100e9", "timestamp": "2026-09-01T16:30:44.534427", "event": "stt", "duration_s": 0.889350634000948, "text": "Can you help me find a free slot next week?"}
+{"call_id": "13d100e9", "timestamp": "2026-09-01T16:30:47.372769", "event": "llm", "duration_s": 2.8382128899993404, "response": "Sure, let me connect you with scheduling.", "tool": true}
+{"call_id": "13d100e9", "timestamp": "2026-09-01T16:30:48.493928", "event": "tts", "duration_s": 1.12104275800084, "returncode": 0}
+{"call_id": "e179a286", "timestamp": "2026-09-01T16:30:53.600578", "event": "stt", "duration_s": 0.865883649999887, "text": "Tell me a fun fact about space."}
+{"call_id": "e179a286", "timestamp": "2026-09-01T16:30:55.898422", "event": "llm", "duration_s": 2.297693870999865, "response": "\"Did you know that the Moon is slowly moving away from Earth at an average rate of 1.5 inches (3.8 centimeters) per year?\"", "tool": false}
+{"call_id": "e179a286", "timestamp": "2026-09-01T16:30:57.269253", "event": "tts", "duration_s": 1.370710858000166, "returncode": 0}
