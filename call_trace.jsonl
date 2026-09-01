@@ -1,0 +1,16 @@
+{"call_id": "2e0019ab", "timestamp": "2026-08-31T15:58:59.628357", "event": "stt", "duration_s": 0.9675814080001146, "text": "Hello, how are you?"}
+{"call_id": "2e0019ab", "timestamp": "2026-08-31T15:59:01.852869", "event": "llm", "duration_s": 2.224264296000001, "response": "I'm just a program; I don't have feelings per se, but I'm here to help! How can I assist with the math problems today?", "tool": false}
+{"call_id": "2e0019ab", "timestamp": "2026-08-31T15:59:03.449014", "event": "tts", "duration_s": 1.5960169210002277, "returncode": 0}
+{"call_id": "2c82f9ae", "timestamp": "2026-08-31T15:59:18.407362", "event": "stt", "duration_s": 0.8372525240001778, "text": "multiply 37 with 33."}
+{"call_id": "2c82f9ae", "timestamp": "2026-08-31T15:59:20.614053", "event": "llm", "duration_s": 2.2065686039995853, "response": "Your ID for today's session is 1221; let's get started! How can I assist you today?", "tool": true}
+{"call_id": "2c82f9ae", "timestamp": "2026-08-31T15:59:21.902455", "event": "tts", "duration_s": 1.2882728000004136, "returncode": 0}
+{"call_id": "99ea2079", "timestamp": "2026-08-31T15:59:34.375420", "event": "stt", "duration_s": 0.8359051249999538, "text": "multiply 3733."}
+{"call_id": "99ea2079", "timestamp": "2026-08-31T15:59:36.457911", "event": "llm", "duration_s": 2.082326832000035, "response": "Your calculation resulted in a number of 3733; is there anything else I can assist you with?", "tool": true}
+{"call_id": "99ea2079", "timestamp": "2026-08-31T15:59:37.713725", "event": "tts", "duration_s": 1.2556884749992605, "returncode": 0}
+{"call_id": "ff98a0d4", "timestamp": "2026-08-31T15:59:49.148644", "event": "stt", "duration_s": 0.8586232959996778, "text": "Wartage 10 plus 20."}
+{"call_id": "ff98a0d4", "timestamp": "2026-08-31T15:59:53.183093", "event": "llm", "duration_s": 4.034309460999793, "response": "Your calculation yielded a result of thirty for your query. Is there anything else I can assist you with?", "tool": true}
+{"call_id": "ff98a0d4", "timestamp": "2026-08-31T15:59:54.371976", "event": "tts", "duration_s": 1.1887684940002146, "returncode": 0}
+{"call_id": "8bb9c38c", "timestamp": "2026-09-01T15:56:10.387470", "event": "stt", "duration_s": 1.010955448000459, "text": "Hello, how are you?"}
+{"call_id": "8bb9c38c", "timestamp": "2026-09-01T15:56:12.420427", "event": "llm", "duration_s": 2.0327226530007465, "response": "I'm just a program; I don't have feelings like humans do! How can I help you today?", "tool": false}
+{"call_id": "8bb9c38c", "timestamp": "2026-09-01T15:56:13.791350", "event": "tts", "duration_s": 1.3708078380004736, "returncode": 0}
+{"call_id": "d1dcf465", "timestamp": "2026-09-01T15:56:27.908320", "event": "stt", "duration_s": 0.8322320179995586, "text": "be in today."}

@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Voice Agent — Call Traces</title>
+    <style>
+      :root {
+        --bg: #0d1117;
+        --panel: #12181f;
+        --border: #232b34;
+        --text: #d8dee6;
+        --muted: #6b7684;
+        --stt: #5fb3a3;
+        --llm: #d9a15b;
+        --tts: #6b8ed6;
+        --tool: #c96a6a;
+        --accent: #e8e2d4;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "SF Mono", "IBM Plex Mono", Menlo, Consolas, monospace;
+        font-size: 13px;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #sidebar {
+        width: 280px;
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+        flex-shrink: 0;
+      }
+      #sidebar h1 {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--accent);
+        padding: 16px 16px 12px;
+        margin: 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .call-item {
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        cursor: pointer;
+        transition: background 0.1s ease;
+      }
+      .call-item:hover {
+        background: #161d25;
+      }
+      .call-item.active {
+        background: #182029;
+        border-left: 2px solid var(--llm);
+        padding-left: 14px;
+      }
+      .call-item .cid {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .call-item .meta {
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 3px;
+      }
+      .call-item .dur {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      #main {
+        flex: 1;
+        overflow-y: auto;
+        padding: 28px 40px;
+      }
+      #empty {
+        color: var(--muted);
+        padding-top: 60px;
+        text-align: center;
+      }
+
+      .detail-header {
+        margin-bottom: 24px;
+      }
+      .detail-header .cid {
+        color: var(--accent);
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .detail-header .ts {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 4px;
+      }
+
+      .summary-row {
+        display: flex;
+        gap: 24px;
+        margin: 18px 0 28px;
+      }
+      .stat {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        padding: 10px 16px;
+        min-width: 110px;
+      }
+      .stat .val {
+        font-size: 18px;
+        color: var(--accent);
+      }
+      .stat .lbl {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+
+      .timeline {
+        position: relative;
+        margin-bottom: 32px;
+      }
+      .timeline-track {
+        position: relative;
+        height: 34px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        display: flex;
+      }
+      .seg {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-left: 8px;
+        color: #0d1117;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        min-width: 2px;
+      }
+      .seg.stt {
+        background: var(--stt);
+      }
+      .seg.llm {
+        background: var(--llm);
+      }
+      .seg.tts {
+        background: var(--tts);
+      }
+
+      .legend {
+        display: flex;
+        gap: 18px;
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .swatch {
+        width: 9px;
+        height: 9px;
+        display: inline-block;
+      }
+
+      .events {
+        margin-top: 8px;
+      }
+      .event {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        padding: 12px 16px;
+        margin-bottom: 10px;
+      }
+      .event .row1 {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .event .etype {
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+      }
+      .event .etype.stt {
+        color: var(--stt);
+      }
+      .event .etype.llm {
+        color: var(--llm);
+      }
+      .event .etype.tts {
+        color: var(--tts);
+      }
+      .event .edur {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .event .content {
+        margin-top: 8px;
+        color: var(--text);
+        line-height: 1.5;
+      }
+      .event .tag {
+        display: inline-block;
+        background: var(--tool);
+        color: #0d1117;
+        font-size: 10px;
+        padding: 1px 6px;
+        margin-top: 6px;
+        font-weight: 600;
+      }
+
+      #loadmsg {
+        padding: 24px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="sidebar">
+      <h1>CALL TRACES</h1>
+      <div id="call-list"></div>
+    </div>
+    <div id="main">
+      <div id="empty">Select a call to view its trace</div>
+    </div>
+
+    <script>
+      let calls = [];
+      let activeId = null;
+
+      async function load() {
+        try {
+          const res = await fetch("dashboard_data.json");
+          calls = await res.json();
+          renderList();
+          if (calls.length) selectCall(calls[0].call_id);
+        } catch (e) {
+          document.getElementById("main").innerHTML =
+            '<div id="loadmsg">Could not load dashboard_data.json.<br><br>Run this from the same folder:<br><br>python3 -m http.server 8000<br><br>then open http://localhost:8000/dashboard.html</div>';
+        }
+      }
+
+      function renderList() {
+        const list = document.getElementById("call-list");
+        list.innerHTML = "";
+        calls.forEach((c) => {
+          const el = document.createElement("div");
+          el.className =
+            "call-item" + (c.call_id === activeId ? " active" : "");
+          el.onclick = () => selectCall(c.call_id);
+          const time = new Date(c.timestamp).toLocaleTimeString();
+          el.innerHTML = `
+      <div class="cid">${c.call_id}</div>
+      <div class="meta">${time} &middot; <span class="dur">${c.total_duration_s.toFixed(2)}s</span></div>
+    `;
+          list.appendChild(el);
+        });
+      }
+
+      function selectCall(id) {
+        activeId = id;
+        renderList();
+        const call = calls.find((c) => c.call_id === id);
+        const main = document.getElementById("main");
+        if (!call) {
+          main.innerHTML = '<div id="empty">Call not found</div>';
+          return;
+        }
+
+        const stt = call.events.find((e) => e.event === "stt");
+        const llm = call.events.find((e) => e.event === "llm");
+        const tts = call.events.find((e) => e.event === "tts");
+
+        const total = call.total_duration_s || 1;
+        const segHtml = ["stt", "llm", "tts"]
+          .map((type) => {
+            const ev = call.events.find((e) => e.event === type);
+            if (!ev) return "";
+            const pct = Math.max((ev.duration_s / total) * 100, 3);
+            return `<div class="seg ${type}" style="width:${pct}%">${type.toUpperCase()} ${ev.duration_s.toFixed(2)}s</div>`;
+          })
+          .join("");
+
+        const eventsHtml = call.events
+          .map((ev) => {
+            let content = "";
+            if (ev.event === "stt") content = `"${ev.text || "(empty)"}"`;
+            if (ev.event === "llm")
+              content =
+                `${ev.response || ""}` +
+                (ev.tool ? '<div class="tag">TOOL CALL</div>' : "");
+            if (ev.event === "tts")
+              content = `synthesized &middot; exit code ${ev.returncode}`;
+            return `
+      <div class="event">
+        <div class="row1">
+          <span class="etype ${ev.event}">${ev.event}</span>
+          <span class="edur">${(ev.duration_s || 0).toFixed(2)}s</span>
+        </div>
+        <div class="content">${content}</div>
+      </div>
+    `;
+          })
+          .join("");
+
+        main.innerHTML = `
+    <div class="detail-header">
+      <div class="cid">${call.call_id}</div>
+      <div class="ts">${new Date(call.timestamp).toLocaleString()}</div>
+    </div>
+
+    <div class="summary-row">
+      <div class="stat"><div class="val">${call.total_duration_s.toFixed(2)}s</div><div class="lbl">TOTAL PROCESSING</div></div>
+      <div class="stat"><div class="val">${stt ? stt.duration_s.toFixed(2) : "—"}s</div><div class="lbl">STT</div></div>
+      <div class="stat"><div class="val">${llm ? llm.duration_s.toFixed(2) : "—"}s</div><div class="lbl">LLM</div></div>
+      <div class="stat"><div class="val">${tts ? tts.duration_s.toFixed(2) : "—"}s</div><div class="lbl">TTS</div></div>
+    </div>
+
+    <div class="timeline">
+      <div class="timeline-track">${segHtml}</div>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--stt)"></span>Speech-to-text</span>
+        <span><span class="swatch" style="background:var(--llm)"></span>LLM reasoning</span>
+        <span><span class="swatch" style="background:var(--tts)"></span>Text-to-speech</span>
+      </div>
+    </div>
+
+    <div class="events">${eventsHtml}</div>
+  `;
+      }
+
+      load();
+    </script>
+  </body>
+</html>

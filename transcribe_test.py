@@ -10,6 +10,8 @@ from livekit import rtc, api
 import torch
 import requests
 import time
+import uuid
+from datetime import datetime
 
 from silero_vad import load_silero_vad
 from mcp import ClientSession, StdioServerParameters
@@ -33,6 +35,16 @@ AGENTS = {
     },
 }
 CURRENT_AGENT = {"active": "primary", "context": ""}
+
+def log_event(call_id, event_type, data):
+    entry = {
+        "call_id": call_id,
+        "timestamp": datetime.now().isoformat(),
+        "event": event_type,
+        **data
+    }
+    with open("call_trace.jsonl", "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 def call_ollama(prompt, stop=None, max_tokens=150):
     response = requests.post(
@@ -91,7 +103,7 @@ async def main():
        sentences = re.split(r'(?<=[.!?])\s+', text)
        return ' '.join(sentences[:2]).strip()
 
-    async def get_llm_response(user_text):
+    async def get_llm_response(user_text, call_id):
         t0 = time.monotonic()
         active = CURRENT_AGENT["active"]
         persona = AGENTS[active]
@@ -160,7 +172,10 @@ Agent:"""
 
                         t1 = time.monotonic()
                         response = call_ollama(
-                            f"The tool returned: {result_text}. Respond to the user naturally with this information, in one short sentence.\nAgent:",
+                            f"The user asked: \"{user_text}\". "
+                            f"You used the tool {tool_name} with args {tool_args}, and it returned: {result_text}. "
+                            f"Respond to the user naturally with this result, in one short sentence. "
+                            f"Do not invent extra context (like IDs, sessions, etc.) — just state the answer.\nAgent:",
                             stop=["\nUser", "User:"], max_tokens=60
                         )
                         print(f"[TIMING] LLM (follow-up) took {time.monotonic() - t1:.2f}s")
@@ -174,7 +189,9 @@ Agent:"""
         response = clean_response(response)
         print(f"[DEBUG] Active agent: {CURRENT_AGENT['active']}")
         print(f"Agent: {response}")
-        await speak(response)
+        elapsed = time.monotonic() - t0
+        log_event(call_id, "llm", {"duration_s": elapsed, "response": response, "tool": tool_used})
+        await speak(response, call_id)
     
 
     async def process_track(track: rtc.Track):
@@ -218,10 +235,11 @@ Agent:"""
                         speech_buffer = []
                         is_speaking = False
                         silence_frames = 0
+                        call_id = str(uuid.uuid4())[:8]
                         print("[DEBUG] End of turn detected, transcribing...")
-                        asyncio.create_task(transcribe(full_audio))   # <-- changed from `await transcribe(...)`
+                        asyncio.create_task(transcribe(full_audio, call_id))   # <-- changed from `await transcribe(...)`
 
-    async def transcribe(audio_data):
+    async def transcribe(audio_data, call_id):
         t0 = time.monotonic()
         wav_path = "chunk.wav"
         with wave.open(wav_path, "wb") as wf:
@@ -234,20 +252,24 @@ Agent:"""
         )
         text = result.stdout.strip()
         print(f"[TIMING] STT took {time.monotonic() - t0:.2f}s")
+        elapsed = time.monotonic() - t0
+        log_event(call_id, "stt", {"duration_s": elapsed, "text": text})
         if text:
             print(f"You said: {text}")
-            await get_llm_response(text)
+            await get_llm_response(text, call_id)
 
 
-    async def speak(text):
+    async def speak(text, call_id):
         t0 = time.monotonic()
         output_wav = "response.wav"
         result = subprocess.run(
             ["piper", "--model", "/home/rishu/en_US-lessac-medium.onnx", "--output_file", output_wav],
             input=text, text=True, capture_output=True
         )
+        elapsed = time.monotonic() - t0
         print(f"[TIMING] TTS synthesis took {time.monotonic() - t0:.2f}s")
         print(f"[DEBUG] piper returncode: {result.returncode}")
+        log_event(call_id, "tts", {"duration_s": elapsed, "returncode": result.returncode})
         
 
         if result.returncode != 0 or not os.path.exists(output_wav):
