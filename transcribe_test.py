@@ -97,10 +97,10 @@ async def main():
     agent_audio_track = rtc.LocalAudioTrack.create_audio_track("agent-voice", agent_audio_source)
 
     def clean_response(text):
-       # Cut at common meta-commentary markers
        text = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:|\*\*The following', text, maxsplit=1)[0].strip()
-       # Hard cap: keep only the first 2 sentences for spoken responses
        sentences = re.split(r'(?<=[.!?])\s+', text)
+       # Drop any sentence that looks like leaked meta-instruction, not an actual answer
+       sentences = [s for s in sentences if not re.match(r'^(Instruction|Task|Prompt)\s*\d*:', s.strip(), re.IGNORECASE)]
        return ' '.join(sentences[:2]).strip()
 
     async def get_llm_response(user_text, call_id):
