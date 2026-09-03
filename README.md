@@ -78,7 +78,7 @@ These numbers are from a small eval batch (6 cases) on unoptimized consumer hard
 ```bash
 git clone https://github.com/rishugren03/local-voice-agent.git
 cd local-voice-agent
-cp .env.example .env   # fill in your local paths
+cp .env.example .env   # fill in your local paths 
 pip install -r requirements.txt
 
 # In separate terminals:
