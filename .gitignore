@@ -3,4 +3,9 @@ chunk.wav
 questions.txt
 .env
 response.wav
-test_audio
+test_audio.env
+*.wav
+call_trace.jsonl
+dashboard_data.json
+call_trace.jsonl
+dashboard_data.json
