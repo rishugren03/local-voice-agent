@@ -8,3 +8,9 @@ lk token create \
   --valid-for 24h
 
 https://meet.livekit.io/?tab=custom
+
+python3 -m http.server 8000
+
+python3 run_eval.py
+
+python3 score_eval.py

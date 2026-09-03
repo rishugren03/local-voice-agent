@@ -19,8 +19,32 @@ from mcp.client.stdio import stdio_client
 
 load_dotenv()
 
-WHISPER_BIN = "/home/rishu/whisper.cpp/build/bin/whisper-cli"
-WHISPER_MODEL = "/home/rishu/whisper.cpp/models/ggml-base.en.bin"
+
+WHISPER_BIN = os.getenv("WHISPER_BIN")
+WHISPER_MODEL = os.getenv("WHISPER_MODEL")
+PIPER_MODEL = os.getenv("PIPER_MODEL")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi4-mini")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+ROOM_NAME = os.getenv("ROOM_NAME", "test-room")
+
+def validate_config():
+    required = {
+        "WHISPER_BIN": WHISPER_BIN,
+        "WHISPER_MODEL": WHISPER_MODEL,
+        "PIPER_MODEL": PIPER_MODEL,
+    }
+    missing = [k for k, v in required.items() if not v]
+    if missing:
+        raise SystemExit(f"Missing required .env values: {', '.join(missing)}")
+
+    for name, path in [("WHISPER_BIN", WHISPER_BIN), ("WHISPER_MODEL", WHISPER_MODEL), ("PIPER_MODEL", PIPER_MODEL)]:
+        if not os.path.exists(path):
+            raise SystemExit(f"{name} points to a path that doesn't exist: {path}")
+
+    print("[CONFIG] All paths validated.")
+
+validate_config()
+
 CHUNK_SECONDS = 4
 AGENT_STATE = {"mode": "LISTENING", "interrupt": False}
 
@@ -48,9 +72,9 @@ def log_event(call_id, event_type, data):
 
 def call_ollama(prompt, stop=None, max_tokens=150):
     response = requests.post(
-        "http://localhost:11434/api/generate",
+         f"{OLLAMA_URL}/api/generate",
         json={
-            "model": "phi4-mini",
+            "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
             "keep_alive": "30m",
@@ -84,7 +108,7 @@ async def main():
     token = api.AccessToken(os.getenv("LIVEKIT_API_KEY"), os.getenv("LIVEKIT_API_SECRET")) \
         .with_identity("voice-agent") \
         .with_name("Voice Agent") \
-        .with_grants(api.VideoGrants(room_join=True, room="test-room")) \
+        .with_grants(api.VideoGrants(room_join=True, room=ROOM_NAME)) \
         .to_jwt()
     
 
@@ -265,7 +289,7 @@ Agent:"""
         t0 = time.monotonic()
         output_wav = "response.wav"
         result = subprocess.run(
-            ["piper", "--model", "/home/rishu/en_US-lessac-medium.onnx", "--output_file", output_wav],
+            ["piper", "--model", PIPER_MODEL, "--output_file", output_wav],
             input=text, text=True, capture_output=True
         )
         elapsed = time.monotonic() - t0
