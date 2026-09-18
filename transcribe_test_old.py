@@ -17,9 +17,8 @@ from silero_vad import load_silero_vad
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from agent_platform.orchestrator import AgentRegistry
-
 load_dotenv()
+
 
 WHISPER_BIN = os.getenv("WHISPER_BIN")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL")
@@ -27,7 +26,6 @@ PIPER_MODEL = os.getenv("PIPER_MODEL")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi4-mini")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 ROOM_NAME = os.getenv("ROOM_NAME", "test-room")
-
 
 def validate_config():
     required = {
@@ -45,29 +43,25 @@ def validate_config():
 
     print("[CONFIG] All paths validated.")
 
-
 validate_config()
 
+CHUNK_SECONDS = 4
 AGENT_STATE = {"mode": "LISTENING", "interrupt": False}
 
-# --- Per-session agent state ---
-# Keyed by session_id (one per participant/call, stable across all their turns).
-# This replaces the old single global CURRENT_AGENT dict, so multiple simultaneous
-# calls each get their own independent active-agent tracking.
-SESSIONS = {}
-DEFAULT_ENTRY_AGENT = "primary"
+AGENTS = {
+    "primary": {
+        "name": "primary",
+        "system": "You are a helpful general assistant. If the user wants to check calendar availability or schedule something, hand off to the scheduler.",
+    },
+    "scheduler": {
+        "name": "scheduler",
+        "system": "You are a scheduling assistant. Help the user check availability and find appointment slots using the check_calendar tool. Be efficient and specific.",
+    },
+}
+CURRENT_AGENT = {"active": "primary", "context": ""}
 
-
-def get_session(session_id):
-    if session_id not in SESSIONS:
-        SESSIONS[session_id] = {"active": DEFAULT_ENTRY_AGENT, "context": ""}
-        print(f"[SESSION] New session {session_id}, starting on '{DEFAULT_ENTRY_AGENT}'")
-    return SESSIONS[session_id]
-
-
-def log_event(session_id, call_id, event_type, data):
+def log_event(call_id, event_type, data):
     entry = {
-        "session_id": session_id,
         "call_id": call_id,
         "timestamp": datetime.now().isoformat(),
         "event": event_type,
@@ -76,35 +70,25 @@ def log_event(session_id, call_id, event_type, data):
     with open("call_trace.jsonl", "a") as f:
         f.write(json.dumps(entry) + "\n")
 
-
 def call_ollama(prompt, stop=None, max_tokens=150):
     response = requests.post(
-        f"{OLLAMA_URL}/api/generate",
+         f"{OLLAMA_URL}/api/generate",
         json={
             "model": OLLAMA_MODEL,
             "prompt": prompt,
             "stream": False,
             "keep_alive": "30m",
             "options": {
-                "stop": stop or [],
-                "num_predict": max_tokens
-            }
-        },
+            "stop": stop or [],
+            "num_predict": max_tokens
+        }
+    },
         timeout=30
-    )
+)
     return response.json()["response"].strip()
 
 
-def clean_response(text):
-    text = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:|\*\*The following', text, maxsplit=1)[0].strip()
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    sentences = [s for s in sentences if not re.match(r'^(Instruction|Task|Prompt)\s*\d*:', s.strip(), re.IGNORECASE)]
-    return ' '.join(sentences[:2]).strip()
-
-
 async def main():
-    registry = AgentRegistry()
-
     mcp_params = StdioServerParameters(
         command="python3",
         args=["mcp_server.py"],
@@ -126,21 +110,63 @@ async def main():
         .with_name("Voice Agent") \
         .with_grants(api.VideoGrants(room_join=True, room=ROOM_NAME)) \
         .to_jwt()
+    
 
     room = rtc.Room()
     sample_rate = 16000  # whisper wants 16kHz mono
 
+    # --- Persistent audio source/track for the agent's voice, published once ---
     PIPER_SAMPLE_RATE = 22050
     agent_audio_source = rtc.AudioSource(PIPER_SAMPLE_RATE, 1)
     agent_audio_track = rtc.LocalAudioTrack.create_audio_track("agent-voice", agent_audio_source)
 
-    async def get_llm_response(user_text, call_id, session_id):
-        t0 = time.monotonic()
-        session = get_session(session_id)
-        active_agent_id = session["active"]
-        context_note = f"\n(Context from handoff: {session['context']})" if session["context"] else ""
+    def clean_response(text):
+       text = re.split(r'\n---\n|\*\*Note:?\*\*|^Note:|\*\*The following', text, maxsplit=1)[0].strip()
+       sentences = re.split(r'(?<=[.!?])\s+', text)
+       # Drop any sentence that looks like leaked meta-instruction, not an actual answer
+       sentences = [s for s in sentences if not re.match(r'^(Instruction|Task|Prompt)\s*\d*:', s.strip(), re.IGNORECASE)]
+       return ' '.join(sentences[:2]).strip()
 
-        tool_prompt = registry.build_prompt(active_agent_id, user_text, context_note)
+    async def get_llm_response(user_text, call_id):
+        t0 = time.monotonic()
+        active = CURRENT_AGENT["active"]
+        persona = AGENTS[active]
+        context_note = f"\n(Context from handoff: {CURRENT_AGENT['context']})" if CURRENT_AGENT["context"] else ""
+
+        if active == "primary":
+            tool_prompt = f"""{persona['system']}
+
+You have access to these tools:
+- calculate(expression): evaluates a math expression
+- check_calendar(date): checks calendar for a date like '2026-08-15'
+- handoff_to_scheduler(reason): transfers the conversation to a scheduling specialist
+
+RULE: For ANY math or arithmetic question, no matter how simple, you MUST use the calculate tool. Never compute or state a numeric answer yourself.
+
+If the user's request needs one of these, respond with ONLY the matching JSON and nothing else:
+{{"tool": "calculate", "args": {{"expression": "..."}}}}
+{{"tool": "check_calendar", "args": {{"date": "..."}}}}
+{{"tool": "handoff_to_scheduler", "args": {{"reason": "..."}}}}
+
+Otherwise, respond normally and conversationally. Do NOT explain your reasoning or mention tools.
+
+User: {user_text}
+Agent:"""
+        else:  # scheduler persona
+            tool_prompt = f"""{persona['system']}{context_note}
+
+You have access to:
+- check_calendar(date): checks calendar for a date like '2026-08-15'
+- handoff_to_primary(reason): transfers back to the general assistant if the user's request is no longer about scheduling
+
+If the user's request needs one of these, respond with ONLY the matching JSON and nothing else:
+{{"tool": "check_calendar", "args": {{"date": "..."}}}}
+{{"tool": "handoff_to_primary", "args": {{"reason": "..."}}}}
+
+Otherwise, respond normally and conversationally, focused on scheduling. Do NOT explain your reasoning or mention tools.
+
+User: {user_text}
+Agent:"""
 
         raw_response = call_ollama(tool_prompt, stop=["\nUser", "User:", "\n---"], max_tokens=150)
         print(f"[TIMING] LLM (first pass) took {time.monotonic() - t0:.2f}s")
@@ -157,13 +183,14 @@ async def main():
                     tool_args = call.get("args", {})
                     print(f"[DEBUG] Calling tool: {tool_name}({tool_args})")
 
-                    handoff_target = registry.resolve_handoff(tool_name)
-
-                    if handoff_target:
-                        session["active"] = handoff_target
-                        session["context"] = tool_args.get("reason", "")
-                        target_agent = registry.get_agent(handoff_target)
-                        response = f"Sure, let me connect you with {target_agent['id']}."
+                    if tool_name == "handoff_to_scheduler":
+                        CURRENT_AGENT["active"] = "scheduler"
+                        CURRENT_AGENT["context"] = tool_args.get("reason", "")
+                        response = "Sure, let me connect you with scheduling."
+                    elif tool_name == "handoff_to_primary":
+                        CURRENT_AGENT["active"] = "primary"
+                        CURRENT_AGENT["context"] = ""
+                        response = "Sure, let me bring you back to the main assistant."
                     else:
                         tool_result = await mcp_session.call_tool(tool_name, tool_args)
                         result_text = tool_result.content[0].text if tool_result.content else "No result"
@@ -186,22 +213,23 @@ async def main():
             response = raw_response
 
         response = clean_response(response)
-        print(f"[DEBUG] Session {session_id} active agent: {session['active']}")
+        print(f"[DEBUG] Active agent: {CURRENT_AGENT['active']}")
         print(f"Agent: {response}")
         elapsed = time.monotonic() - t0
-        log_event(session_id, call_id, "llm", {"duration_s": elapsed, "response": response, "tool": tool_used})
-        await speak(response, call_id, session_id)
+        log_event(call_id, "llm", {"duration_s": elapsed, "response": response, "tool": tool_used})
+        await speak(response, call_id)
+    
 
-    async def process_track(track: rtc.Track, session_id: str):
+    async def process_track(track: rtc.Track):
         stream = rtc.AudioStream(track, sample_rate=sample_rate, num_channels=1)
 
         vad_model = load_silero_vad()
-        window_size = 512
+        window_size = 512  # required by silero at 16kHz
         rolling_buffer = np.array([], dtype=np.int16)
         speech_buffer = []
         is_speaking = False
         silence_frames = 0
-        SILENCE_THRESHOLD = 20
+        SILENCE_THRESHOLD = 20  # ~20 windows of silence (~640ms) = end of turn
 
         async for event in stream:
             frame = event.frame
@@ -228,17 +256,18 @@ async def main():
                     speech_buffer.append(chunk)
 
                     if silence_frames >= SILENCE_THRESHOLD:
+                        # End of turn detected
                         full_audio = np.concatenate(speech_buffer)
                         speech_buffer = []
                         is_speaking = False
                         silence_frames = 0
                         call_id = str(uuid.uuid4())[:8]
                         print("[DEBUG] End of turn detected, transcribing...")
-                        asyncio.create_task(transcribe(full_audio, call_id, session_id))
+                        asyncio.create_task(transcribe(full_audio, call_id))   # <-- changed from `await transcribe(...)`
 
-    async def transcribe(audio_data, call_id, session_id):
+    async def transcribe(audio_data, call_id):
         t0 = time.monotonic()
-        wav_path = f"chunk_{call_id}.wav"
+        wav_path = "chunk.wav"
         with wave.open(wav_path, "wb") as wf:
             wf.setparams((1, 2, sample_rate, 0, "NONE", "NONE"))
             wf.writeframes(audio_data.tobytes())
@@ -248,27 +277,26 @@ async def main():
             capture_output=True, text=True
         )
         text = result.stdout.strip()
+        print(f"[TIMING] STT took {time.monotonic() - t0:.2f}s")
         elapsed = time.monotonic() - t0
-        print(f"[TIMING] STT took {elapsed:.2f}s")
-        log_event(session_id, call_id, "stt", {"duration_s": elapsed, "text": text})
-
-        os.remove(wav_path)  # per-session temp file, clean up after use
-
+        log_event(call_id, "stt", {"duration_s": elapsed, "text": text})
         if text:
             print(f"You said: {text}")
-            await get_llm_response(text, call_id, session_id)
+            await get_llm_response(text, call_id)
 
-    async def speak(text, call_id, session_id):
+
+    async def speak(text, call_id):
         t0 = time.monotonic()
-        output_wav = f"response_{call_id}.wav"
+        output_wav = "response.wav"
         result = subprocess.run(
             ["piper", "--model", PIPER_MODEL, "--output_file", output_wav],
             input=text, text=True, capture_output=True
         )
         elapsed = time.monotonic() - t0
-        print(f"[TIMING] TTS synthesis took {elapsed:.2f}s")
+        print(f"[TIMING] TTS synthesis took {time.monotonic() - t0:.2f}s")
         print(f"[DEBUG] piper returncode: {result.returncode}")
-        log_event(session_id, call_id, "tts", {"duration_s": elapsed, "returncode": result.returncode})
+        log_event(call_id, "tts", {"duration_s": elapsed, "returncode": result.returncode})
+        
 
         if result.returncode != 0 or not os.path.exists(output_wav):
             print("[DEBUG] Piper failed to produce output, skipping playback")
@@ -277,9 +305,10 @@ async def main():
         t1 = time.monotonic()
         await publish_audio(output_wav)
         print(f"[TIMING] Audio publish took {time.monotonic() - t1:.2f}s")
-        os.remove(output_wav)
 
     async def publish_audio(wav_path):
+        # Uses agent_audio_source from the enclosing scope — no need to pass it in,
+        # since this track is published once and reused for every response.
         with wave.open(wav_path, "rb") as wf:
             sr = wf.getframerate()
             audio_data = wf.readframes(wf.getnframes())
@@ -307,16 +336,13 @@ async def main():
     @room.on("track_subscribed")
     def on_track_subscribed(track, publication, participant):
         if track.kind == rtc.TrackKind.KIND_AUDIO:
-            # session_id is stable per participant, generated once — this is what
-            # makes agent state (which persona is active) persist across that
-            # participant's turns without leaking into other participants' calls.
-            session_id = f"{participant.identity}-{str(uuid.uuid4())[:6]}"
-            print(f"Audio track subscribed from {participant.identity}, session {session_id}")
-            asyncio.create_task(process_track(track, session_id))
+            print(f"Audio track subscribed from {participant.identity}, starting transcription...")
+            asyncio.create_task(process_track(track))
 
     await room.connect(url, token)
     print(f"Agent joined room: {room.name}")
 
+    # Publish the agent's voice track once, right after connecting
     await room.local_participant.publish_track(agent_audio_track)
     print("Agent audio track published.")
 
@@ -326,6 +352,5 @@ async def main():
     await room.disconnect()
     await mcp_session.__aexit__(None, None, None)
     await mcp_stdio_ctx.__aexit__(None, None, None)
-
 
 asyncio.run(main())
