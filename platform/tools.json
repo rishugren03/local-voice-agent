@@ -1,0 +1,18 @@
+{
+  "calculate": {
+    "description": "calculate(expression): evaluates a math expression"
+  },
+  "check_calendar": {
+    "description": "check_calendar(date): checks calendar for a date like '2026-08-15'"
+  },
+  "handoff_to_scheduler": {
+    "description": "handoff_to_scheduler(reason): transfers the conversation to a scheduling specialist",
+    "is_handoff": true,
+    "target": "scheduler"
+  },
+  "handoff_to_primary": {
+    "description": "handoff_to_primary(reason): transfers back to the general assistant",
+    "is_handoff": true,
+    "target": "primary"
+  }
+}

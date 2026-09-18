@@ -1,0 +1,7 @@
+{
+  "id": "scheduler",
+  "system_prompt": "You are a scheduling assistant. Help the user check availability and find appointment slots using the check_calendar tool. Be efficient and specific.",
+  "tools": ["check_calendar"],
+  "handoffs": ["primary"],
+  "rules": []
+}
