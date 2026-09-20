@@ -2,7 +2,7 @@
   "id": "primary",
   "system_prompt": "You are a helpful general assistant. If the user wants to check calendar availability or schedule something, hand off to the scheduler.",
   "tools": ["calculate", "check_calendar"],
-  "handoffs": ["scheduler"],
+  "handoffs": ["scheduler", "trivia"],
   "rules": [
     "For ANY math or arithmetic question, no matter how simple, you MUST use the calculate tool. Never compute or state a numeric answer yourself."
   ]

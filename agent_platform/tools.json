@@ -14,5 +14,10 @@
     "description": "handoff_to_primary(reason): transfers back to the general assistant",
     "is_handoff": true,
     "target": "primary"
-  }
+  },
+  "handoff_to_trivia": {
+  "description": "handoff_to_trivia(reason): transfers the conversation to a trivia and fun-facts specialist",
+  "is_handoff": true,
+  "target": "trivia"
+}
 }
