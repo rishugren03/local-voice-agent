@@ -1,0 +1,264 @@
+# The whole voice stack, local, on CPU. `docker compose up` should be enough.
+#
+# Three things do not fit the "just add a service" model, and each gets a note
+# where it appears:
+#
+#   1. Models are not in the image. The whisper.cpp weights and the Piper voice
+#      are downloaded once into ./models on first start (see the `models`
+#      service). A 60MB voice and a 140MB STT model in a git-tracked image would
+#      mean a rebuild for every model swap, and both are licensed separately.
+#
+#   2. The agent talks to Ollama by service name, not localhost. `localhost`
+#      inside a container is that container. This is the single most common way a
+#      compose file like this silently hangs: the agent starts fine, the LLM call
+#      never returns, and the trace shows a retry then a timeout.
+#
+#   3. LiveKit is in dev mode, which is unauthenticated and http/ws. That is
+#      correct for a laptop and wrong for anything else — the warning in the
+#      LiveKit docs is blunt about it, so it is repeated here.
+
+name: voice-agent
+
+x-agent-env: &agent-env
+  # Compose resolves these against the compose network, not the host.
+  LIVEKIT_URL: ws://livekit:7880
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+  OLLAMA_URL: http://ollama:11434
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-phi4-mini}
+  ROOM_NAME: ${ROOM_NAME:-test-room}
+  # Timeouts are tuned a little above the default STT cost on CPU: a cold
+  # whisper.cpp run on a 30s clip is well past 30s on a laptop, and a timeout
+  # that fires on the slowest legitimate turn is indistinguishable from a hang.
+  STT_TIMEOUT_S: ${STT_TIMEOUT_S:-45}
+  LLM_TIMEOUT_S: ${LLM_TIMEOUT_S:-60}
+
+services:
+  livekit:
+    image: livekit/livekit-server:v1.8.4
+    # --dev binds plaintext ws and skips auth. Local use only.
+    command: --dev --bind 0.0.0.0
+    # Host ports are variables, not literals, because compose fails to start when
+    # they collide with a service already on the host — a `livekit-server --dev`
+    # left running, or a local Ollama. Compose *merges* a `ports:` list rather
+    # than replacing it, so an override file cannot take a port away; shifting
+    # them here is the only thing that actually works, and it needs no
+    # `!override` directive that older compose versions do not understand.
+    #
+    # Only the published side moves. The container's internal port is unchanged,
+    # so the agent and control plane still reach everything over the compose
+    # network exactly as before.
+    ports:
+      - "${LIVEKIT_HTTP_PORT:-7880}:7880"   # client signalling (ws/http)
+      - "${LIVEKIT_RTC_PORT:-7881}:7881"     # media/ICE
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:7880"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  ollama:
+    image: ollama/ollama:0.12.3
+    # The model is pulled on first start by the `ollama-pull` service below, not
+    # baked into the image — the ollama image itself ships no models.
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_MAX_LOADED_MODELS: 1
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      # `ollama list` succeeds as soon as the server is up, which is the signal
+      # the agent needs; it does not require any model to be present.
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  ollama-pull:
+    # One-shot: pulls the model, then exits 0. Not a service the agent depends on
+    # directly — the agent waits for the model itself (see below), so a warm
+    # cache just makes the first turn faster.
+    image: ollama/ollama:0.12.3
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      # Passed through explicitly: the pull has to fetch the same model the agent
+      # asks for, and this service does not inherit the agent's environment.
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-phi4-mini}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        model="$${OLLAMA_MODEL:-phi4-mini}"
+        echo "Pulling $${model}..."
+        ollama pull "$${model}"
+        echo "Model ready."
+    restart: "no"
+
+  models:
+    # Downloads the two model files the agent needs, once, into ./models on the
+    # host. Kept as a service rather than a build step so re-running compose does
+    # not re-download, and so the files are inspectable and deletable.
+    image: curlimages/curl:8.11.1
+    volumes:
+      - ./models:/models
+      # Read-only, and only so the script above can discover which voices the
+      # agent configs actually reference.
+      - ./agent_platform:/app/agent_platform:ro
+    # Runs as root because it writes into a bind mount: Docker creates ./models
+    # owned by root, and the curl image's default user cannot write there. The
+    # agent only ever reads the result, so nothing else needs this privilege.
+    user: "0:0"
+    environment:
+      WHISPER_MODEL_NAME: ${WHISPER_MODEL_NAME:-ggml-base.en.bin}
+      PIPER_VOICE_URL: ${PIPER_VOICE_URL:-https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx}
+      PIPER_VOICE_NAME: ${PIPER_VOICE_NAME:-en_US-lessac-medium.onnx}
+      # "name=url" pairs for per-agent voices whose URL does not follow Piper's
+      # own en/<lang>_<region>/<name>/<quality>/ convention. Empty by default;
+      # the script derives those paths itself.
+      PIPER_EXTRA_VOICE_URLS: ${PIPER_EXTRA_VOICE_URLS:-}
+    entrypoint: ["/bin/sh", "-c"]
+    # Each file is verified after download rather than trusted on curl's exit
+    # code alone. HuggingFace resets connections partway through a 140MB body
+    # often enough to matter, and `curl -f ... && mv` is worse than useless there:
+    # the failed curl skips the mv, `set -e` does not fire because the whole
+    # &&-list is the condition of an if, and the script goes on to print
+    # "Models ready" having downloaded nothing. A truncated model is worse than a
+    # missing one, because whisper.cpp will happily start and then mis-transcribe
+    # every turn — so the size is checked and the partial file is discarded.
+    command:
+      - |
+        set -eu
+        mkdir -p /models/whisper /models/piper
+
+        fetch() {
+          url="$$1"; dest="$$2"; min_bytes="$$3"
+          if [ -f "$$dest" ]; then
+            size=$$(wc -c < "$$dest")
+            if [ "$$size" -ge "$$min_bytes" ]; then
+              echo "$$(basename "$$dest") already present ($$size bytes)"
+              return 0
+            fi
+            echo "$$(basename "$$dest") is truncated ($$size bytes), re-downloading"
+            rm -f "$$dest"
+          fi
+          echo "Downloading $$(basename "$$dest")..."
+          part="$$dest.part"
+          rm -f "$$part"
+          if ! curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+                 -o "$$part" "$$url"; then
+            echo "ERROR: download failed: $$url" >&2
+            rm -f "$$part"
+            return 1
+          fi
+          size=$$(wc -c < "$$part")
+          if [ "$$size" -lt "$$min_bytes" ]; then
+            echo "ERROR: $$(basename "$$dest") is only $$size bytes, expected at least $$min_bytes" >&2
+            rm -f "$$part"
+            return 1
+          fi
+          mv "$$part" "$$dest"
+          echo "$$(basename "$$dest") ready ($$size bytes)"
+        }
+
+        fetch "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$${WHISPER_MODEL_NAME}" \
+              "/models/whisper/$${WHISPER_MODEL_NAME}" 10000000
+        fetch "$${PIPER_VOICE_URL}" \
+              "/models/piper/$${PIPER_VOICE_NAME}" 1000000
+
+        # Per-agent voice overrides. Every agent JSON is read, not a hardcoded
+        # list: an agent that names a second voice needs that voice present or
+        # the agent refuses to start on a sample-rate check, and a hand-kept
+        # list is exactly the thing that silently breaks when an agent is added.
+        #
+        # Piper's own naming convention encodes the download path, so the URL is
+        # derived from the voice name: en_US-amy-medium.onnx lives at
+        # en/en_US/amy/medium/en_US-amy-medium.onnx. PIPER_EXTRA_VOICE_URLS
+        # overrides that for a voice from somewhere else, as "name=url" pairs.
+        for cfg in /app/agent_platform/agents/*.json; do
+          [ -f "$$cfg" ] || continue
+          name=$$(sed -n 's/.*"tts_voice"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$cfg")
+          [ -n "$$name" ] || continue
+          case "$$name" in
+            */*) echo "Agent $$(basename "$$cfg" .json) names an explicit path: $$name" ;;
+            *)
+              stem="$${name%.onnx}"
+              url=""
+              for pair in $${PIPER_EXTRA_VOICE_URLS:-}; do
+                if [ "$${pair%%=*}" = "$$name" ]; then url="$${pair#*=}"; fi
+              done
+              if [ -z "$$url" ]; then
+                # en_US-amy-medium -> lang=en, locale=en_US, name=amy, quality=medium
+                # Fields are split on DASHES, not underscores: the locale
+                # (en_US) contains an underscore, so splitting there gives the
+                # wrong field count. The repository layout puts the full locale
+                # in the directory, lowercase only the voice name.
+                quality="$${stem##*-}"; rest="$${stem%-*}"
+                name_part="$${rest##*-}"; locale="$${rest%-*}"
+                lang="$${locale%%_*}"
+                slug="$$(echo "$$name_part" | tr 'A-Z' 'a-z')"
+                url="https://huggingface.co/rhasspy/piper-voices/resolve/main/$$lang/$$locale/$$slug/$$quality/$$name"
+              fi
+              fetch "$$url" "/models/piper/$$name" 1000000
+              fetch "$$url.json" "/models/piper/$$name.json" 500
+              ;;
+          esac
+        done
+
+        # Piper reads the voice's phoneme settings from a sidecar .onnx.json next
+        # to the weights and will not start without it — the weights alone are not
+        # a usable voice. It is 5KB, so it is fetched alongside rather than
+        # required to be supplied by hand, and derived from the voice URL so a
+        # custom voice gets its own correct config.
+        config_url="$${PIPER_VOICE_URL}.json"
+        fetch "$$config_url" \
+              "/models/piper/$${PIPER_VOICE_NAME}.json" 500
+
+        echo "Models ready."
+    restart: "no"
+
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      livekit:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      models:
+        condition: service_completed_successfully
+      ollama-pull:
+        # The agent is retried against a missing model rather than started
+        # against one, so this is a soft ordering: by the time the pull finishes
+        # the agent may already be up and serving the offline fallback.
+        condition: service_completed_successfully
+    environment:
+      <<: *agent-env
+      WHISPER_BIN: /opt/whisper/lib/whisper-cli
+      WHISPER_MODEL: /models/whisper/${WHISPER_MODEL_NAME:-ggml-base.en.bin}
+      PIPER_MODEL: /models/piper/${PIPER_VOICE_NAME:-en_US-lessac-medium.onnx}
+      TRACE_DB: /data/call_trace.db
+    volumes:
+      - ./models:/models:ro
+      - ./agent_platform:/app/agent_platform   # config and prompts, editable live
+      - trace-data:/data
+    ports:
+      - "${DASHBOARD_PORT:-8000}:8000"   # the trace dashboard, if you serve it
+    # The agent is a long-lived process that exits on a fatal config error, and
+    # compose would otherwise leave it stopped with a reason only in the logs.
+    restart: unless-stopped
+    command: >
+      sh -c "python -m http.server 8000 --directory /app >/dev/null 2>&1 &
+      exec python transcribe_test.py"
+
+volumes:
+  ollama-models:
+  trace-data:

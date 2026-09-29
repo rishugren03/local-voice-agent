@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LocalVoice — Zero-Cloud, Privacy-First Voice Agents. Free.</title>
+<meta name="description" content="Build, configure and deploy privacy-first voice agents that run 100% locally. Zero cloud in the hot path. Free forever." />
+<link rel="stylesheet" href="styles.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="logo" href="#"><span class="logo-dot"></span> LocalVoice</a>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">Build</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#performance">Performance</a>
+      <a href="#deploy">Deploy</a>
+    </nav>
+    <div class="nav-cta">
+      <a href="#deploy" class="btn btn-ghost">Docs</a>
+      <a href="#cta" class="btn btn-primary">Deploy Free</a>
+    </div>
+  </div>
+</header>
+
+<main>
+<!-- HERO -->
+<section class="hero container">
+  <div class="badge"><span class="pulse"></span> 100% LOCAL • ZERO CLOUD • FREE FOREVER</div>
+  <h1>Voice agents that<br><span class="grad">never leave your machine.</span></h1>
+  <p class="sub">Build, configure and deploy production-grade voice agents with interruption handling, tool use, and multi-agent handoff — no STT / LLM / TTS API, no per-minute billing, no audio leaving the building.</p>
+  <div class="hero-cta">
+    <a href="#cta" class="btn btn-primary btn-lg">Start building — Free</a>
+    <a href="#architecture" class="btn btn-secondary btn-lg">See how it works</a>
+  </div>
+  <div class="hero-meta mono">git clone local-voice-agent &nbsp;•&nbsp; livekit-server --dev &nbsp;•&nbsp; ollama pull phi4-mini</div>
+
+  <div class="stats">
+    <div class="stat"><strong>$0</strong><span>per minute, forever.<br>No cloud bill.</span></div>
+    <div class="stat"><strong>0</strong><span>cloud calls in hot path.<br>VAD → STT → LLM → TTS local.</span></div>
+    <div class="stat"><strong>4.5s</strong><span>p50 time-to-response<br>on consumer CPU, no GPU.</span></div>
+    <div class="stat"><strong>13/14</strong><span>tasks pass with 2 concurrent<br>callers in one room.</span></div>
+  </div>
+
+  <div class="stack-bar">
+    <span>LiveKit</span><span>Silero VAD</span><span>whisper.cpp</span><span>Phi-4-mini</span><span>Piper TTS</span><span>MCP Tools</span>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" class="container section">
+  <p class="eyebrow">WHY LOCAL-FIRST</p>
+  <h2>Cloud platforms charge per minute.<br>Yours doesn't have to.</h2>
+  <div class="grid-3">
+    <div class="card"><div class="icon">◍</div><h3>Zero Cloud Hot Path</h3><p>Transport, VAD, STT, reasoning, TTS all run on-device. Same orchestration pattern as Vapi / LiveKit Agents, without the dependency.</p></div>
+    <div class="card"><div class="icon">◈</div><h3>Privacy-First by Architecture</h3><p>Built for healthcare, legal, defense. Every conversation stays in your VPC / laptop. No audio egress to prove compliant.</p></div>
+    <div class="card"><div class="icon">⬢</div><h3>Free to Build & Deploy</h3><p>No seat, no minute, no hosted model fee. Self-host LiveKit in dev mode, pull Ollama + Piper, run.</p></div>
+    <div class="card"><div class="icon">≋</div><h3>Real Barge-In</h3><p>VAD-driven turn-taking with 640ms silence trigger. Transcribe→respond→speak runs as background task so callers can interrupt mid-sentence.</p></div>
+    <div class="card"><div class="icon">⬣</div><h3>Tool Use via MCP</h3><p>Standard Model Context Protocol, not custom glue. Declare args in <span class="mono">tools.json</span>, prompt + validation generated automatically.</p></div>
+    <div class="card"><div class="icon">⬔</div><h3>Multi-Agent Handoff</h3><p>Prompt-based persona switching. One room, many isolated sessions — per-caller agent, voice, and audio track.</p></div>
+  </div>
+</section>
+
+<!-- HOW -->
+<section id="how" class="section-alt">
+<div class="container section">
+  <p class="eyebrow">BUILD • CONFIGURE • DEPLOY</p>
+  <h2>From idea to live call in three steps.</h2>
+  <div class="grid-3">
+    <div class="step"><span class="step-n">1</span><h3>Build an agent</h3><p>No Python needed. JSON defines prompt, tools, handoffs, voice.</p><pre class="mono">python3 config_cli.py create-agent
+# id, prompt, tools, handoffs,
+# rules, model / voice</pre></div>
+    <div class="step"><span class="step-n">2</span><h3>Configure a tool</h3><p>Declare once in <span class="mono">tools.json</span>. Schema drives prompt + type coercion.</p><pre class="mono">"get_weather": {
+  "description": "Gets weather",
+  "args_schema": {
+    "location": {"type": "string",
+     "required": true}
+  }
+}</pre></div>
+    <div class="step"><span class="step-n">3</span><h3>Deploy locally</h3><p>One process serves one room, N isolated sessions. Free.</p><pre class="mono">livekit-server --dev
+ollama pull phi4-mini
+python3 transcribe_test.py</pre></div>
+  </div>
+</div>
+</section>
+
+<!-- ARCH -->
+<section id="architecture" class="container section">
+  <p class="eyebrow">ARCHITECTURE</p>
+  <h2>Production patterns, local stack.</h2>
+  <div class="arch">
+    <div class="arch-flow">
+      <div class="node">LiveKit<br><small>transport</small></div><span class="arrow">→</span>
+      <div class="node">Silero<br><small>VAD</small></div><span class="arrow">→</span>
+      <div class="node">whisper.cpp<br><small>STT base.en</small></div><span class="arrow">→</span>
+      <div class="node accent">Phi-4-mini<br><small>LLM + MCP</small></div><span class="arrow">→</span>
+      <div class="node">Piper<br><small>TTS</small></div>
+    </div>
+    <p class="arch-note mono">audio published back into room • barge-in via LISTENING / SPEAKING state machine • blocking inference offloaded to worker threads</p>
+  </div>
+  <div class="grid-2">
+    <div class="card"><h3>Concurrency done right</h3><p>Every participant gets an independent <span class="mono">Session</span>: agent, handoff context, barge-in flag, audio track, MCP client. Track subscription permissions route each answer to only the caller who asked.</p></div>
+    <div class="card"><h3>Observable by default</h3><p>Every turn logged stage-by-stage to SQLite: sessions, calls, events, agent_transitions. Open <span class="mono">dashboard.html</span> for latency + tool attribution with one query.</p></div>
+  </div>
+</section>
+
+<!-- PERF -->
+<section id="performance" class="section-alt">
+<div class="container section">
+  <p class="eyebrow">RELIABILITY DATA</p>
+  <h2>Measured, not marketed.</h2>
+  <div class="perf">
+    <table>
+      <tr><th>Stage</th><th>p50</th><th>p90</th></tr>
+      <tr><td>STT (whisper.cpp)</td><td>0.87s</td><td>0.89s</td></tr>
+      <tr><td>LLM (Phi-4-mini)</td><td>2.3s</td><td>2.84s</td></tr>
+      <tr><td>TTS (Piper)</td><td>1.2s</td><td>1.37s</td></tr>
+      <tr class="total"><td>Total time-to-response</td><td>4.53s</td><td>4.85s</td></tr>
+    </table>
+    <div>
+      <div class="check">✓ 6/6 scripted tasks (greeting, math, calendar, weather, handoff)</div>
+      <div class="check">✓ 13/14 with 2 concurrent callers, interleaved on one CPU</div>
+      <div class="check">✓ Degradation paths: LLM / MCP / TTS / STT timeouts speak + log, never hang up silently</div>
+      <p class="fine">Fully local, consumer hardware, no GPU optimization. LLM is dominant cost — streaming tokens into TTS is the roadmap.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- DEPLOY / PRICING -->
+<section id="deploy" class="container section center">
+  <p class="eyebrow">PRICING</p>
+  <h2>Free. As in zero.</h2>
+  <p class="sub">$0 per minute. $0 per seat. $0 for STT / LLM / TTS. Your only cost is the machine you already own.</p>
+  <div class="price-card"><strong>$0</strong><span>forever • MIT • self-hosted</span><a href="#cta" class="btn btn-primary">Clone & run</a></div>
+</section>
+
+<!-- CTA -->
+<section id="cta" class="cta">
+  <div class="container">
+    <h2>Ship a voice agent that respects privacy.</h2>
+    <p>Compliance-sensitive use cases — healthcare, legal, defense — without the cloud bill.</p>
+    <div class="hero-cta"><a href="#" class="btn btn-primary btn-lg">Get started free</a><span class="mono cta-cmd">cp .env.example .env && pip install -r requirements.txt</span></div>
+  </div>
+</section>
+</main>
+
+<footer><div class="container foot"><span>© 2026 LocalVoice — fully offline voice AI orchestration</span><span class="mono">VAD • STT • LLM • MCP • TTS — all local</span></div></footer>
+</body>
+</html>

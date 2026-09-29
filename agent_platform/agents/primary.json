@@ -1,9 +1,10 @@
 {
   "id": "primary",
   "system_prompt": "You are a helpful general assistant. If the user wants to check calendar availability or schedule something, hand off to the scheduler.",
-  "tools": ["calculate", "check_calendar"],
+  "tools": ["calculate", "check_calendar", "get_weather"],
   "handoffs": ["scheduler", "trivia"],
   "rules": [
-    "For ANY math or arithmetic question, no matter how simple, you MUST use the calculate tool. Never compute or state a numeric answer yourself."
+    "For ANY math or arithmetic question, no matter how simple, you MUST use the calculate tool. Never compute or state a numeric answer yourself.",
+    "For ANY question about current weather, temperature, rain, or forecasts for a place, you MUST use the get_weather tool. Never say you cannot check the weather and never hand off a weather question to another agent."
   ]
 }

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Voice agent logo">
+  <title>Voice agent</title>
+  <defs>
+    <linearGradient id="wave" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5fb3a3"/>
+      <stop offset="100%" stop-color="#6b8ed6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square plate, so the mark holds up at favicon size -->
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0d1117" stroke="#232b34" stroke-width="1.5"/>
+
+  <!-- Five waveform bars. Heights are drawn from the STT/LLM/TTS stage colours
+       in the dashboard so the logo and the trace view read as one system. -->
+  <g fill="url(#wave)">
+    <rect x="13" y="28" width="4" height="8"  rx="2" fill="#5fb3a3"/>
+    <rect x="20" y="22" width="4" height="20" rx="2" fill="#5fb3a3"/>
+    <rect x="27" y="16" width="4" height="32" rx="2" fill="#d9a15b"/>
+    <rect x="34" y="22" width="4" height="20" rx="2" fill="#6b8ed6"/>
+    <rect x="41" y="28" width="4" height="8"  rx="2" fill="#6b8ed6"/>
+  </g>
+
+  <!-- Mic capsule + stand, the small cue that this is speech and not a
+       generic equalizer. Drawn over the bars' midpoint. -->
+  <g fill="none" stroke="#e8e2d4" stroke-width="2.5" stroke-linecap="round">
+    <path d="M24 41a8 8 0 0 0 16 0"/>
+    <path d="M32 49v4"/>
+  </g>
+</svg>

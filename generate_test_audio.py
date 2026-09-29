@@ -7,6 +7,7 @@ test_cases = [
     {"id": "math_simple", "text": "What is 12 plus 15?"},
     {"id": "math_complex", "text": "Multiply 47 by 12"},
     {"id": "calendar_check", "text": "Check my calendar for August 15th"},
+    {"id": "weather_check", "text": "What's the weather like in Seattle right now?"},
     {"id": "handoff_trigger", "text": "Can you help me find a free slot next week?"},
     {"id": "off_topic", "text": "Tell me a fun fact about space"},
 ]

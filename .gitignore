@@ -7,6 +7,11 @@ response.wav
 test_audio.env
 *.wav
 call_trace.jsonl
+call_trace.db
+call_trace.db-wal
+call_trace.db-shm
 dashboard_data.json
-call_trace.jsonl
-dashboard_data.json
+.run/
+models/
+*.onnx
+*.part

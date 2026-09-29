@@ -1,23 +1,68 @@
 {
   "calculate": {
-    "description": "calculate(expression): evaluates a math expression"
+    "description": "Evaluates a math expression and returns the result",
+    "args_schema": {
+      "expression": {
+        "type": "string",
+        "description": "A math expression like '12 + 15'",
+        "example": "12 + 15"
+      }
+    }
   },
   "check_calendar": {
-    "description": "check_calendar(date): checks calendar for a date like '2026-08-15'"
+    "description": "Checks the calendar for what is booked on a date",
+    "args_schema": {
+      "date": {
+        "type": "string",
+        "description": "A date like '2026-08-15'",
+        "example": "2026-08-15"
+      }
+    }
+  },
+  "get_weather": {
+    "description": "Gets the current weather for a city or place",
+    "args_schema": {
+      "location": {
+        "type": "string",
+        "description": "A city or place, like 'Seattle, WA'",
+        "example": "Seattle, WA"
+      }
+    }
   },
   "handoff_to_scheduler": {
-    "description": "handoff_to_scheduler(reason): transfers the conversation to a scheduling specialist",
+    "description": "Transfers the conversation to a scheduling specialist",
+    "args_schema": {
+      "reason": {
+        "type": "string",
+        "description": "Why the user is being transferred",
+        "example": "wants to book an appointment"
+      }
+    },
     "is_handoff": true,
     "target": "scheduler"
   },
   "handoff_to_primary": {
-    "description": "handoff_to_primary(reason): transfers back to the general assistant",
+    "description": "Transfers the conversation back to the general assistant",
+    "args_schema": {
+      "reason": {
+        "type": "string",
+        "description": "Why the user is being transferred",
+        "example": "wants to go back to general help"
+      }
+    },
     "is_handoff": true,
     "target": "primary"
   },
   "handoff_to_trivia": {
-  "description": "handoff_to_trivia(reason): transfers the conversation to a trivia and fun-facts specialist",
-  "is_handoff": true,
-  "target": "trivia"
-}
+    "description": "Transfers the conversation to a trivia and fun-facts specialist",
+    "args_schema": {
+      "reason": {
+        "type": "string",
+        "description": "Why the user is being transferred",
+        "example": "wants a fun fact"
+      }
+    },
+    "is_handoff": true,
+    "target": "trivia"
+  }
 }

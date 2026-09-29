@@ -20,5 +20,20 @@ def check_calendar(date: str) -> str:
     }
     return fake_schedule.get(date, "No events found for that date.")
 
+@mcp.tool()
+def get_weather(location: str) -> str:
+    """Look up mock current weather for a city or place, e.g. 'Seattle, WA'."""
+    fake_weather = {
+        "seattle": "48F, light rain, wind 8 mph",
+        "san francisco": "63F, foggy, wind 10 mph",
+        "new york": "71F, sunny, wind 5 mph",
+        "london": "55F, overcast, wind 12 mph",
+    }
+    # Callers pass whatever the schema's example teaches them, so "Seattle, WA" and
+    # "seattle" have to land on the same entry. Real weather APIs geocode and
+    # tolerate the state/country suffix; the mock matches the city part.
+    city = location.strip().lower().split(",")[0].strip()
+    return fake_weather.get(city, f"No mock weather data for '{location}'.")
+
 if __name__ == "__main__":
     mcp.run()

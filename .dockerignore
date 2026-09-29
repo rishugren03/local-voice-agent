@@ -1,0 +1,7 @@
+models/
+*.onnx
+*.part
+__pycache__/
+*.pyc
+venv/
+.git/
